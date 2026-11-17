@@ -30,8 +30,8 @@ async function extractZipBuffer (buffer: Buffer) {
     const fileName = entry.path
     const absolutePath = path.resolve('uploads/complaints/' + fileName)
     challengeUtils.solveIf(challenges.fileWriteChallenge, () => { return absolutePath === path.resolve('ftp/legal.md') })
-    if (absolutePath.includes(path.resolve('.'))) {
-      await pipeline(entry.stream(), fs.createWriteStream('uploads/complaints/' + fileName))
+    if (absolutePath.startsWith(path.resolve('uploads/complaints') + path.sep)) {
+      await pipeline(entry.stream(), fs.createWriteStream(absolutePath))
     }
   }
 }
@@ -73,6 +73,11 @@ async function handleXmlUpload ({ file }: Request, res: Response, next: NextFunc
     if (((file?.buffer) != null) && utils.isChallengeEnabled(challenges.deprecatedInterfaceChallenge)) { // XXE attacks in Docker/Heroku containers regularly cause "segfault" crashes
       const data = file.buffer.toString()
       try {
+        const sanitized = data.replace(/<!--[\s\S]*?-->/g, '')
+        if (/<!\s*(?:DOCTYPE\s+\S+\s+(?:SYSTEM|PUBLIC)|ENTITY\s+(?:%\s*)?\S+\s+(?:SYSTEM|PUBLIC))\b/i.test(sanitized) ||
+            (/<!\s*(?:DOCTYPE|ENTITY)/i.test(sanitized) && /\b(?:SYSTEM|PUBLIC)\s*["']/i.test(sanitized))) {
+          throw new Error('XML contains forbidden external entity declaration')
+        }
         const xmlString = await parseXmlString(data)
         challengeUtils.solveIf(challenges.xxeFileDisclosureChallenge, () => { return (utils.matchesEtcPasswdFile(xmlString) || utils.matchesSystemIniFile(xmlString)) })
         res.status(410)
